@@ -77,13 +77,11 @@ class BaseDumper(object):
                 # 如果之前已经作为文件写入了，则需要删除
                 click.secho("%s is a file. It will be removed." % outdir, fg="yellow")
                 os.remove(outdir)
-            if not os.path.exists(outdir):
-                try:
-                    os.makedirs(outdir)
-                except Exception as e:
-                    # TODO: 存在异步创建文件夹冲突问题
-                    msg = "Failed to makedirs %s" % (fullname)
-                    self.error_log(msg=msg, e=e)
+            try:
+                os.makedirs(outdir, exist_ok=True)
+            except Exception as e:
+                msg = "Failed to makedirs %s" % (fullname)
+                self.error_log(msg=msg, e=e)
 
     def error_log(self, msg: str, e: Exception = None):
         """ 统一错误日志 """
@@ -172,7 +170,8 @@ class BaseDumper(object):
         # 修复任意位置存储的漏洞
         # https://drivertom.blogspot.com/2021/08/git.html
         fullname = os.path.abspath(os.path.join(self.outdir, filename))
-        if not fullname.startswith(self.outdir):
+        outdir = os.path.abspath(self.outdir)
+        if os.path.commonpath([outdir, fullname]) != outdir:
             # 如果文件超出目标位置范围
             click.secho(
                 f"[WARNING] THIS MAY BE A HONEYPOT !!! \n[URL]: {url}\n[FILENAME]: {filename}\n",

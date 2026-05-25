@@ -77,6 +77,8 @@ def main(
 
     # 合成并创建下载目录
     url_obj = urlparse(url)
+    if not outdir:
+        outdir = "dist"
     outdir = path.join(outdir, "%s_%s" % (url_obj.hostname, url_obj.port))
     basedir = outdir
     i = 1
