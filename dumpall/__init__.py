@@ -3,18 +3,14 @@
 
 import os
 import asyncio
-import importlib
 import traceback
 import click
 from os import path
 from urllib.parse import urlparse
 from .__version__ import __version__, __author__
 
-addons_map = {".git": "gitdumper", ".svn": "svndumper", ".DS_Store": "dsdumper"}
-
-
 def banner():
-    bn = """
+    bn = r"""
        ___                  ___   __   __ 
       / _ \__ ____ _  ___  / _ | / /  / / 
      / // / // /  ' \/ _ \/ __ |/ /__/ /__
@@ -29,13 +25,8 @@ def banner():
 
 
 def start(url: str, outdir: str, proxy: str, force: bool, debug: bool):
-    for k, v in addons_map.items():
-        if k in url:
-            addon = importlib.import_module(".addons." + v, __package__)
-            break
-    else:
-        # click.secho("URL不符合要求", fg="red")
-        addon = importlib.import_module(".addons.idxdumper", __package__)
+    from .addons import autodumper as addon
+
     click.secho("Module: %s\n" % addon.__name__, fg="yellow")
     try:
         dumper = addon.Dumper(url, outdir, proxy=proxy, force=force, debug=debug)
@@ -50,8 +41,8 @@ def start(url: str, outdir: str, proxy: str, force: bool, debug: bool):
 
 @click.command()
 @click.version_option()
-@click.option("-u", "--url", help="指定目标URL，支持.git/.svn/.DS_Store，以及类index页面")
-@click.option("-o", "--outdir", default="", help="指定下载目录，默认目录名为主机名")
+@click.option("-u", "--url", help="指定目标URL，自动检查.git/.svn/.DS_Store和目录索引")
+@click.option("-o", "--outdir", default="", help="指定下载目录，默认为dist")
 @click.option(
     "-p", "--proxy", default="", help="指定代理 scheme://[user:pass@]hostname:port"
 )
@@ -65,9 +56,9 @@ def main(
     debug,
 ):
     """
-    信息泄漏利用工具，适用于.git/.svn/.DS_Store，以及目录列出下载
+    信息泄漏利用工具，自动检查.git/.svn/.DS_Store和目录索引
 
-    Example: dumpall -u http://example.com/.git
+    Example: dumpall -u http://example.com/
     """
     banner()
 

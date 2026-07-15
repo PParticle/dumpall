@@ -47,56 +47,55 @@ TODO:
 
 项目地址：<https://github.com/0xHJK/dumpall>
 
-> 在macOS下的Python 3.7中测试通过，建议使用Python 3.7+
+> 当前版本要求 Python 3.9+
 
 
 ## 🚀 QuickStart
 
 ```bash
-# pip安装
-pip install dumpall
+# 源码目录使用 uv 安装依赖
+uv sync
 # 查看版本
-dumpall --version
+uv run dumpall --version
 ```
 
 ```bash
-# 手动下载使用
-git clone https://github.com/0xHJK/dumpall
-cd dumpall
-# 查看版本
-python3 dumpall.py --version
+# 也可以使用 pip 安装
+python3 -m pip install .
+dumpall --version
 ```
 
 ## 💫 Usage
 
 ```bash
-# 下载文件（源代码）
-dumpall -u <url> [-o <outdir>]
+# 自动检查并下载 .git、.svn、.DS_Store 和 Web 目录索引
+uv run dumpall -u <url> [-o <outdir>]
 
 # 示例
-dumpall -u http://example.com/.git/
-dumpall -u http://example.com/.svn/
-dumpall -u http://example.com/.DS_Store
-dumpall -u http://example.com/
+uv run dumpall -u http://example.com/
 ```
+
+给定一个基础 URL 后，dumpall 会依次运行 Git、SVN、DS_Store 和 Web 目录索引下载器，
+任一类型不存在或解析失败都不会阻止后续检查。
+为兼容旧用法，传入 `/.git/`、`/.svn/` 或 `/.DS_Store` URL 时也会先回到所在目录，再执行全部检查。
 
 帮助
 
 ```bash
-$ dumpall --help
-Usage: dumpall.py [OPTIONS]
+$ uv run dumpall --help
+Usage: dumpall [OPTIONS]
 
-  信息泄漏利用工具，适用于.git/.svn/.DS_Store，以及目录列出下载
+  信息泄漏利用工具，自动检查.git/.svn/.DS_Store和目录索引
 
-  Example: dumpall -u http://example.com/.git
+  Example: dumpall -u http://example.com/
 
 Options:
   --version          Show the version and exit.
-  -u, --url TEXT     指定目标URL，支持.git/.svn/.DS_Store，以及类index页面
-  -o, --outdir TEXT  指定下载目录，默认目录名为主机名
+  -u, --url TEXT     指定目标URL，自动检查.git/.svn/.DS_Store和目录索引
+  -o, --outdir TEXT  指定下载目录，默认为dist
   -p, --proxy TEXT   指定代理 scheme://[user:pass@]hostname:port
   -f, --force        强制下载（可能会有蜜罐风险）
-  -d, --debug        调试模式
+  -d, --debug        调试模式 输出更多日志
   --help             Show this message and exit.
 ```
 

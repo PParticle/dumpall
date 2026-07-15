@@ -158,7 +158,7 @@ class BaseDumper(object):
     async def indexfile(self, url: str) -> NamedTemporaryFile:
         """ 创建一个临时索引文件index/wc.db """
         status, data = await self.fetch(url)
-        if not data:
+        if status != 200 or not data:
             click.secho("Failed to fetch data [%s] %s" % (status, url), fg="red")
             return
         with NamedTemporaryFile(mode="wb", delete=False) as f:
