@@ -41,7 +41,7 @@ def start(url: str, outdir: str, proxy: str, force: bool, debug: bool):
 
 @click.command()
 @click.version_option()
-@click.option("-u", "--url", help="指定目标URL，自动检查.git/.svn/.DS_Store和目录索引")
+@click.option("-u", "--url", help="指定目标URL，自动检查.git/.hg/.svn/.DS_Store和目录索引")
 @click.option("-o", "--outdir", default="", help="指定下载目录，默认为dist")
 @click.option(
     "-p", "--proxy", default="", help="指定代理 scheme://[user:pass@]hostname:port"
@@ -56,7 +56,7 @@ def main(
     debug,
 ):
     """
-    信息泄漏利用工具，自动检查.git/.svn/.DS_Store和目录索引
+    信息泄漏利用工具，自动检查.git/.hg/.svn/.DS_Store和目录索引
 
     Example: dumpall -u http://example.com/
     """

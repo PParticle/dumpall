@@ -1,4 +1,5 @@
 import tempfile
+import struct
 from pathlib import Path
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, patch
@@ -7,6 +8,7 @@ from click.testing import CliRunner
 
 import dumpall
 from dumpall.addons import autodumper
+from dumpall.addons.hgdumper import Dumper as HgDumper
 from dumpall.dumper import BaseDumper
 
 
@@ -33,6 +35,14 @@ class NormalizeBaseUrlTests(IsolatedAsyncioTestCase):
             "https://example.test/project",
         )
 
+    def test_hg_artifact_target(self):
+        self.assertEqual(
+            autodumper.normalize_base_url(
+                "https://example.test/project/.hg/store/fncache?ignored=yes"
+            ),
+            "https://example.test/project",
+        )
+
     def test_similar_path_is_not_treated_as_artifact(self):
         self.assertEqual(
             autodumper.normalize_base_url("https://example.test/.github/"),
@@ -51,6 +61,7 @@ class NormalizeBaseUrlTests(IsolatedAsyncioTestCase):
 
         addons = (
             ("Git", FakeDumper, ".git/"),
+            ("Mercurial", FakeDumper, ".hg/"),
             ("SVN", FakeDumper, ".svn/"),
             ("DS_Store", FakeDumper, ".DS_Store"),
             ("Web index", FakeDumper, ""),
@@ -65,6 +76,7 @@ class NormalizeBaseUrlTests(IsolatedAsyncioTestCase):
             [call[0] for call in calls],
             [
                 "https://example.test/app/.git/",
+                "https://example.test/app/.hg/",
                 "https://example.test/app/.svn/",
                 "https://example.test/app/.DS_Store",
                 "https://example.test/app/",
@@ -134,3 +146,64 @@ class IndexFileTests(IsolatedAsyncioTestCase):
         result = await dumper.indexfile("https://example.test/.git/index")
 
         self.assertIsNone(result)
+
+
+class HgDumperTests(IsolatedAsyncioTestCase):
+    def dirstate_entry(self, state: bytes, filename: bytes) -> bytes:
+        return struct.pack(">cllll", state, 0, 0, 0, len(filename)) + filename
+
+    def test_parse_dirstate_v1(self):
+        dumper = HgDumper("https://example.test/app/.hg/", "/tmp/output")
+        data = (
+            b"\0" * 40
+            + self.dirstate_entry(b"n", b"index.php")
+            + self.dirstate_entry(b"a", b"src/App.py")
+            + self.dirstate_entry(b"r", b"deleted.txt")
+        )
+
+        self.assertEqual(dumper.parse_dirstate(data), ["index.php", "src/App.py"])
+
+    def test_store_path_encoding_for_uppercase_files(self):
+        dumper = HgDumper("https://example.test/app/.hg/", "/tmp/output")
+
+        self.assertEqual(
+            dumper.store_data_paths("src/App_File.py"),
+            [
+                "data/src/App_File.py.i",
+                "data/src/App_File.py.d",
+                "data/src/_app___file.py.i",
+                "data/src/_app___file.py.d",
+            ],
+        )
+
+    async def test_collects_targets_from_dirstate_and_fncache(self):
+        dumper = HgDumper("https://example.test/app/.hg/", "/tmp/output", force=True)
+        dirstate = b"\0" * 40 + self.dirstate_entry(b"n", b"index.php")
+
+        async def fake_fetch(url):
+            if url.endswith("/dirstate"):
+                return (200, dirstate)
+            if url.endswith("/store/fncache"):
+                return (200, b"data/src/_app.py.i\n")
+            return (404, b"")
+
+        dumper.fetch = AsyncMock(side_effect=fake_fetch)
+        await dumper.collect_from_dirstate()
+        await dumper.collect_from_fncache()
+
+        self.assertIn(("https://example.test/app/index.php", "index.php"), dumper.targets)
+        self.assertIn(
+            (
+                "https://example.test/app/.hg/store/data/index.php.i",
+                ".hg/store/data/index.php.i",
+            ),
+            dumper.targets,
+        )
+        self.assertIn(
+            (
+                "https://example.test/app/.hg/store/data/src/_app.py.i",
+                ".hg/store/data/src/_app.py.i",
+            ),
+            dumper.targets,
+        )
+        self.assertIn(("https://example.test/app/src/App.py", "src/App.py"), dumper.targets)

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dumpall"
 version = "0.4.0"
-description = "A source code and information disclosure dumper for .git, .svn, .DS_Store, and directory indexes"
+description = "A source code and information disclosure dumper for .git, .hg, .svn, .DS_Store, and directory indexes"
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT License" }

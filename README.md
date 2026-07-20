@@ -35,6 +35,7 @@
 适用于以下场景：
 
 - [x] `.git`源代码泄漏
+- [x] `.hg`源代码泄漏
 - [x] `.svn`源代码泄漏
 - [x] `.DS_Store`信息泄漏
 - [x] 目录列出信息泄漏
@@ -68,16 +69,16 @@ dumpall --version
 ## 💫 Usage
 
 ```bash
-# 自动检查并下载 .git、.svn、.DS_Store 和 Web 目录索引
+# 自动检查并下载 .git、.hg、.svn、.DS_Store 和 Web 目录索引
 uv run dumpall -u <url> [-o <outdir>]
 
 # 示例
 uv run dumpall -u http://example.com/
 ```
 
-给定一个基础 URL 后，dumpall 会依次运行 Git、SVN、DS_Store 和 Web 目录索引下载器，
+给定一个基础 URL 后，dumpall 会依次运行 Git、Mercurial、SVN、DS_Store 和 Web 目录索引下载器，
 任一类型不存在或解析失败都不会阻止后续检查。
-为兼容旧用法，传入 `/.git/`、`/.svn/` 或 `/.DS_Store` URL 时也会先回到所在目录，再执行全部检查。
+为兼容旧用法，传入 `/.git/`、`/.hg/`、`/.svn/` 或 `/.DS_Store` URL 时也会先回到所在目录，再执行全部检查。
 
 帮助
 
@@ -85,13 +86,13 @@ uv run dumpall -u http://example.com/
 $ uv run dumpall --help
 Usage: dumpall [OPTIONS]
 
-  信息泄漏利用工具，自动检查.git/.svn/.DS_Store和目录索引
+  信息泄漏利用工具，自动检查.git/.hg/.svn/.DS_Store和目录索引
 
   Example: dumpall -u http://example.com/
 
 Options:
   --version          Show the version and exit.
-  -u, --url TEXT     指定目标URL，自动检查.git/.svn/.DS_Store和目录索引
+  -u, --url TEXT     指定目标URL，自动检查.git/.hg/.svn/.DS_Store和目录索引
   -o, --outdir TEXT  指定下载目录，默认为dist
   -p, --proxy TEXT   指定代理 scheme://[user:pass@]hostname:port
   -f, --force        强制下载（可能会有蜜罐风险）

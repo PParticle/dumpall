@@ -8,11 +8,12 @@ from urllib.parse import urlsplit, urlunsplit
 import click
 
 from ..dumper import BaseDumper
-from . import dsdumper, gitdumper, idxdumper, svndumper
+from . import dsdumper, gitdumper, hgdumper, idxdumper, svndumper
 
 
 ADDONS = (
     ("Git", gitdumper.Dumper, ".git/"),
+    ("Mercurial", hgdumper.Dumper, ".hg/"),
     ("SVN", svndumper.Dumper, ".svn/"),
     ("DS_Store", dsdumper.Dumper, ".DS_Store"),
     ("Web index", idxdumper.Dumper, ""),
@@ -26,7 +27,7 @@ def normalize_base_url(url: str) -> str:
 
     # Supplying a legacy artifact URL remains convenient, but auto mode always
     # starts from its containing directory and runs every addon.
-    for marker in ("/.git", "/.svn", "/.DS_Store"):
+    for marker in ("/.git", "/.hg", "/.svn", "/.DS_Store"):
         position = path.find(marker)
         if position >= 0:
             suffix = path[position + len(marker) :]
