@@ -9,6 +9,7 @@ from click.testing import CliRunner
 
 import dumpall
 from dumpall.addons import autodumper
+from dumpall.addons.dsdumper import Dumper as DSDumper
 from dumpall.addons.gitdumper import Dumper as GitDumper
 from dumpall.addons.hgdumper import Dumper as HgDumper
 from dumpall.addons.idxdumper import Dumper as IdxDumper
@@ -185,6 +186,40 @@ class SvnDumperTests(TestCase):
 
         self.assertFalse(dumper.is_valid_entries(b"<!DOCTYPE html><html></html>"))
         self.assertTrue(dumper.is_valid_entries(b"12\n"))
+
+
+class DSDumperTests(IsolatedAsyncioTestCase):
+    async def test_textual_ds_store_listing_is_saved_and_downloaded(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dumper = DSDumper("https://example.test/.DS_Store", temp_dir)
+
+            async def fake_fetch(url):
+                if url.endswith("/.DS_Store"):
+                    return (200, b"DSDB\nfilename:flag.txt\n")
+                if url.endswith("/flag.txt"):
+                    return (200, b"flag{ok}\n")
+                return (404, b"")
+
+            dumper.fetch = AsyncMock(side_effect=fake_fetch)
+            await dumper.start()
+
+            self.assertTrue(dumper.found)
+            self.assertEqual(dumper.ds_store_count, 1)
+            self.assertEqual(dumper.downloaded_count, 1)
+            self.assertEqual(len(dumper.targets), 1)
+            self.assertEqual(
+                (Path(temp_dir) / ".DS_Store").read_bytes(),
+                b"DSDB\nfilename:flag.txt\n",
+            )
+            self.assertEqual(
+                (Path(temp_dir) / "flag.txt").read_bytes(), b"flag{ok}\n"
+            )
+
+    def test_html_ds_store_response_is_ignored(self):
+        dumper = DSDumper("https://example.test/.DS_Store", "/tmp/output")
+
+        self.assertTrue(dumper.is_html_response(b"<!DOCTYPE html><html></html>"))
+        self.assertFalse(dumper.is_html_response(b"DSDB\nfilename:flag.txt\n"))
 
 
 class GitDumperTests(IsolatedAsyncioTestCase):

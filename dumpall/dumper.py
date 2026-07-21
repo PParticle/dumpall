@@ -116,7 +116,7 @@ class BaseDumper(object):
             # None才代表出错，data可能为b""
             if self.debug:
                 click.secho("[%s] %s %s" % (status, url, filename), fg="red")
-            return
+            return False
 
         if self.debug:
             click.secho("[%s] %s %s" % (status, url, filename), fg="green")
@@ -128,12 +128,14 @@ class BaseDumper(object):
         try:
             with open(fullname, "wb") as f:
                 f.write(data)
+            return True
         except IsADirectoryError:
             # 多协程/线程/进程下，属于正常情况
-            pass
+            return True
         except Exception as e:
             msg = "Failed to download file %s %s" % (url, filename)
             self.error_log(msg=msg, e=e)
+            return False
 
     async def fetch(self, url: str, times: int = 3) -> tuple:
         """ 从URL获取内容，如果失败默认重试三次 """

@@ -5,6 +5,7 @@
 
 import os
 import re
+import subprocess
 import zlib
 from tempfile import NamedTemporaryFile
 from urllib.parse import quote
@@ -84,6 +85,8 @@ class Dumper(BaseDumper):
                 len(self.seen_git_files),
                 len(self.worktree_targets),
             )
+            if self.git_log_usable():
+                self.summary += "; git log --all usable"
 
     async def collect_metadata_and_refs(self) -> bytes:
         """Download known Git metadata and seed object traversal from refs/logs."""
@@ -330,6 +333,20 @@ class Dumper(BaseDumper):
 
     def is_sha1(self, value: str) -> bool:
         return bool(re.fullmatch(r"[0-9a-f]{40}", value or ""))
+
+    def git_log_usable(self) -> bool:
+        try:
+            result = subprocess.run(
+                ["git", "--git-dir", ".git", "--work-tree", ".", "log", "--all", "-1"],
+                cwd=self.outdir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
 
     def convert(self, data: bytes) -> bytes:
         """用zlib对 index 中的 blob 对象进行解压，恢复工作区文件。"""
