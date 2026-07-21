@@ -27,7 +27,8 @@ def banner():
 def start(url: str, outdir: str, proxy: str, force: bool, debug: bool):
     from .addons import autodumper as addon
 
-    click.secho("Module: %s\n" % addon.__name__, fg="yellow")
+    if debug:
+        click.secho("Module: %s\n" % addon.__name__, fg="yellow")
     try:
         dumper = addon.Dumper(url, outdir, proxy=proxy, force=force, debug=debug)
         asyncio.run(dumper.start())

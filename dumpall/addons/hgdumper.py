@@ -46,17 +46,17 @@ class Dumper(BaseDumper):
     async def start(self):
         requires_url = self.base_url + "/requires"
         status, requires = await self.fetch(requires_url)
-        if status != 200 or not requires:
-            click.secho("Failed [%s] %s" % (status, requires_url), fg="red")
-            return
-        if not self.is_valid_requires(requires):
-            click.secho("Mercurial: invalid requires, skip .hg.", fg="yellow")
-            return
+        valid_requires = status == 200 and requires and self.is_valid_requires(requires)
+        if not valid_requires and self.debug:
+            click.secho("Mercurial: invalid or missing requires.", fg="yellow")
 
-        for name in self.METADATA_FILES:
-            self.add_target(self.base_url + "/" + quote(name, safe="/"), ".hg/" + name)
+        if valid_requires:
+            for name in self.METADATA_FILES:
+                self.add_target(
+                    self.base_url + "/" + quote(name, safe="/"), ".hg/" + name
+                )
 
-        if b"dirstate-v2" in requires:
+        if valid_requires and b"dirstate-v2" in requires:
             click.secho(
                 "Mercurial dirstate-v2 is not parsed; dumping known metadata only.",
                 fg="yellow",
@@ -67,21 +67,31 @@ class Dumper(BaseDumper):
         await self.collect_from_fncache()
 
         if not self.targets:
-            click.secho("No Mercurial files found.", fg="yellow")
+            self.summary = "not found"
+            if self.debug:
+                click.secho("No Mercurial files found.", fg="yellow")
             return
 
-        click.secho("Mercurial: downloading %d artifact(s)." % len(self.targets), fg="cyan")
         async with Pool() as pool:
             await pool.map(self.download, self.targets)
 
         self.recover_store_data_files()
+        self.found = True
+        details = ["%d candidate(s)" % len(self.targets)]
+        if self.recovered_files:
+            shown = ", ".join(self.recovered_files[:3])
+            if len(self.recovered_files) > 3:
+                shown += ", +%d more" % (len(self.recovered_files) - 3)
+            details.append("recovered %s" % shown)
+        self.summary = "; ".join(details)
 
     async def collect_from_dirstate(self):
         status, data = await self.fetch(self.base_url + "/dirstate")
         if status != 200 or not data:
-            click.secho(
-                "Failed [%s] %s" % (status, self.base_url + "/dirstate"), fg="red"
-            )
+            if self.debug:
+                click.secho(
+                    "Failed [%s] %s" % (status, self.base_url + "/dirstate"), fg="red"
+                )
             return
 
         for filename in self.parse_dirstate(data):
@@ -312,7 +322,9 @@ class Dumper(BaseDumper):
         with open(target, "wb") as f:
             f.write(data)
         shown = os.path.relpath(target, self.outdir).replace(os.sep, "/")
-        click.secho("[HG] recovered %s" % shown, fg="green")
+        self.recovered_files.append(shown)
+        if self.debug:
+            click.secho("[HG] recovered %s" % shown, fg="green")
 
     def recover_latest_revlog_file(self, index_data: bytes, data_data: bytes = None):
         revisions = self.parse_revlog(index_data, data_data=data_data)

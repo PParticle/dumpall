@@ -28,6 +28,9 @@ class BaseDumper(object):
         self.force = bool(kwargs.get("force", False))
         self.debug = bool(kwargs.get("debug", False))
         self.targets = []
+        self.found = False
+        self.summary = "not found"
+        self.recovered_files = []
 
         # load useragents
         self.useragents = [
@@ -146,8 +149,9 @@ class BaseDumper(object):
                     return await self.fetch(url, times - 1)
                 else:
                     # 获取内容失败
-                    msg = "Failed to fetch url %s" % (url)
-                    self.error_log(msg=msg, e=e)
+                    if self.debug:
+                        msg = "Failed to fetch url %s" % (url)
+                        self.error_log(msg=msg, e=e)
                     ret = (0, None)
             finally:
                 await session.close()

@@ -76,18 +76,14 @@ class Dumper(BaseDumper):
         await self.collect_reachable_objects()
 
         if self.worktree_targets:
-            click.secho(
-                "Git: downloading %d worktree file(s)."
-                % len(self.worktree_targets),
-                fg="cyan",
-            )
             async with Pool() as pool:
                 await pool.map(self.download, self.worktree_targets)
-        click.secho(
-            "Git: saved %d metadata/object file(s), %d worktree file(s)."
-            % (len(self.seen_git_files), len(self.worktree_targets)),
-            fg="cyan",
-        )
+        self.found = bool(self.seen_git_files or self.worktree_targets)
+        if self.found:
+            self.summary = "%d git file(s), %d worktree file(s)" % (
+                len(self.seen_git_files),
+                len(self.worktree_targets),
+            )
 
     async def collect_metadata_and_refs(self) -> bytes:
         """Download known Git metadata and seed object traversal from refs/logs."""
@@ -97,7 +93,9 @@ class Dumper(BaseDumper):
             "HEAD", required=True, validator=self.is_valid_head
         )
         if status != 200 or not head_data:
-            click.secho("Git: invalid or missing HEAD, skip .git.", fg="yellow")
+            self.summary = "not found"
+            if self.debug:
+                click.secho("Git: invalid or missing HEAD, skip .git.", fg="yellow")
             return index_data
 
         head_ref = self.parse_head_ref(head_data)
@@ -196,7 +194,8 @@ class Dumper(BaseDumper):
                 return status, None
             await self.save_raw(url, ".git/" + name, data, status=status)
         elif required:
-            click.secho("Failed [%s] %s" % (status, url), fg="red")
+            if self.debug:
+                click.secho("Failed [%s] %s" % (status, url), fg="red")
         return status, data
 
     async def fetch_object(self, sha1: str) -> tuple:

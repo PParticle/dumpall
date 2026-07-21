@@ -40,7 +40,12 @@ class Dumper(BaseDumper):
             await t
 
         self.running = False
-        click.secho("Web index: visited %d URL(s)." % len(self.fetched_urls), fg="cyan")
+        self.found = len(self.fetched_urls) > 1
+        self.summary = "visited %d URL(s)" % len(self.fetched_urls)
+        if self.found:
+            self.summary = "%s" % self.summary
+        if self.debug:
+            click.secho("Web index: %s." % self.summary, fg="cyan")
 
     async def dump(self):
         """ 核心下载方法 """

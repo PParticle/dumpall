@@ -35,6 +35,9 @@ class Dumper(BaseDumper):
         await self.parse_loop()
 
         await self.dump()
+        self.found = bool(self.targets)
+        if self.found:
+            self.summary = "%d file(s)" % len(self.targets)
 
     async def dump(self):
         # 创建协程池，调用download

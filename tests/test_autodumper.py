@@ -64,11 +64,11 @@ class NormalizeBaseUrlTests(IsolatedAsyncioTestCase):
                 return None
 
         addons = (
-            ("Git", FakeDumper, ".git/"),
-            ("Mercurial", FakeDumper, ".hg/"),
-            ("SVN", FakeDumper, ".svn/"),
-            ("DS_Store", FakeDumper, ".DS_Store"),
-            ("Web index", FakeDumper, ""),
+            ("git", "Git", FakeDumper, ".git/"),
+            ("hg", "Mercurial", FakeDumper, ".hg/"),
+            ("svn", "SVN", FakeDumper, ".svn/"),
+            ("ds_store", "DS_Store", FakeDumper, ".DS_Store"),
+            ("web_index", "Web index", FakeDumper, ""),
         )
         with patch.object(autodumper, "ADDONS", addons):
             dumper = autodumper.Dumper(
@@ -106,8 +106,8 @@ class NormalizeBaseUrlTests(IsolatedAsyncioTestCase):
                 return None
 
         addons = (
-            ("Broken", BrokenDumper, ".git/"),
-            ("Working", WorkingDumper, ".svn/"),
+            ("broken", "Broken", BrokenDumper, ".git/"),
+            ("working", "Working", WorkingDumper, ".svn/"),
         )
         with patch.object(autodumper, "ADDONS", addons):
             dumper = autodumper.Dumper("https://example.test/", "/tmp/output")

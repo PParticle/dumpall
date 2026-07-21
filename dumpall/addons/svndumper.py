@@ -28,16 +28,24 @@ class Dumper(BaseDumper):
         entries_url = self.base_url + "/entries"
         status, data = await self.fetch(entries_url)
         if status != 200 or not data:
-            click.secho("Failed [%s] %s" % (status, entries_url), fg="red")
+            self.summary = "not found"
+            if self.debug:
+                click.secho("Failed [%s] %s" % (status, entries_url), fg="red")
             return
         if not self.is_valid_entries(data):
-            click.secho("SVN: invalid entries, skip .svn.", fg="yellow")
+            self.summary = "not found"
+            if self.debug:
+                click.secho("SVN: invalid entries, skip .svn.", fg="yellow")
             return
         if data == b"12\n":
             await self.dump()
         else:
-            click.secho("SVN: legacy entries detected.", fg="cyan")
+            if self.debug:
+                click.secho("SVN: legacy entries detected.", fg="cyan")
             await self.dump_legacy(data)
+        self.found = bool(self.targets)
+        if self.found:
+            self.summary = "%d artifact(s)" % len(self.targets)
 
     async def dump(self):
         """ 针对svn1.7以后的版本 """
@@ -87,7 +95,8 @@ class Dumper(BaseDumper):
         """ 针对svn1.7以前的版本 """
         await self.collect_legacy_targets("", root_entries)
         if not self.targets:
-            click.secho("No legacy SVN files found.", fg="yellow")
+            if self.debug:
+                click.secho("No legacy SVN files found.", fg="yellow")
             return
         async with Pool() as pool:
             await pool.map(self.download, self.targets)
