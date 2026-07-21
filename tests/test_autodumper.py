@@ -241,6 +241,20 @@ class HgDumperTests(IsolatedAsyncioTestCase):
     def dirstate_entry(self, state: bytes, filename: bytes) -> bytes:
         return struct.pack(">cllll", state, 0, 0, 0, len(filename)) + filename
 
+    def inline_revlog(self, contents: bytes) -> bytes:
+        chunk = zlib.compress(contents)
+        header = HgDumper.REVLOG_ENTRY.pack(
+            0x0003000100000000,
+            len(chunk),
+            len(contents),
+            0,
+            0,
+            -1,
+            -1,
+            b"1" * 20,
+        )
+        return header + chunk
+
     def test_parse_dirstate_v1(self):
         dumper = HgDumper("https://example.test/app/.hg/", "/tmp/output")
         data = (
@@ -296,3 +310,22 @@ class HgDumperTests(IsolatedAsyncioTestCase):
             dumper.targets,
         )
         self.assertIn(("https://example.test/app/src/App.py", "src/App.py"), dumper.targets)
+
+    def test_recovers_inline_revlog_file(self):
+        dumper = HgDumper("https://example.test/app/.hg/", "/tmp/output")
+
+        self.assertEqual(
+            dumper.recover_latest_revlog_file(self.inline_revlog(b"<?php flag();\n")),
+            b"<?php flag();\n",
+        )
+
+    def test_recover_store_data_writes_missing_source_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            revlog_path = Path(temp_dir) / ".hg/store/data/flag.php.i"
+            revlog_path.parent.mkdir(parents=True)
+            revlog_path.write_bytes(self.inline_revlog(b"flag{ok}\n"))
+            dumper = HgDumper("https://example.test/app/.hg/", temp_dir)
+
+            dumper.recover_store_data_files()
+
+            self.assertEqual((Path(temp_dir) / "flag.php").read_bytes(), b"flag{ok}\n")

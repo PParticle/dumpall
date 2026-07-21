@@ -82,6 +82,7 @@ uv run dumpall -u http://example.com/
 
 Git 泄露会同时保存 `.git/HEAD`、`refs`、`logs`、`index` 及可达 commit/tree/blob 对象，
 因此输出目录可直接用 `git log --all`、`git show <commit>:<file>` 查看仓库历史。
+Mercurial 泄露会保存 `.hg/store` revlog 文件，并从 `data/*.i` / `data/*.d` 自动恢复最新源码文件。
 
 帮助
 

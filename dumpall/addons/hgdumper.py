@@ -4,7 +4,9 @@
 """Mercurial ``.hg`` disclosure dumper."""
 
 import re
+import os
 import struct
+import zlib
 from urllib.parse import quote
 
 import click
@@ -15,6 +17,9 @@ from ..dumper import BaseDumper
 
 class Dumper(BaseDumper):
     """Best-effort dumper for exposed Mercurial repositories."""
+
+    REVLOG_ENTRY = struct.Struct(">Qiiiiii20s12x")
+    REVLOG_ENTRY_SIZE = REVLOG_ENTRY.size
 
     METADATA_FILES = (
         "requires",
@@ -64,6 +69,8 @@ class Dumper(BaseDumper):
 
         async with Pool() as pool:
             await pool.map(self.download, self.targets)
+
+        self.recover_store_data_files()
 
     async def collect_from_dirstate(self):
         status, data = await self.fetch(self.base_url + "/dirstate")
@@ -208,3 +215,172 @@ class Dumper(BaseDumper):
             out.append(ch)
             i += 1
         return "".join(out)
+
+    def recover_store_data_files(self):
+        """Recover newest file contents from downloaded .hg/store/data revlogs."""
+        store_data = os.path.join(self.outdir, ".hg", "store", "data")
+        if not os.path.isdir(store_data):
+            return
+
+        for root, _dirs, files in os.walk(store_data):
+            for name in files:
+                if not name.endswith(".i"):
+                    continue
+                index_path = os.path.join(root, name)
+                store_path = os.path.relpath(index_path, os.path.join(self.outdir, ".hg", "store"))
+                store_path = store_path.replace(os.sep, "/")
+                source_name = self.source_name_from_store_path(store_path)
+                if not source_name:
+                    continue
+                data_path = index_path[:-2] + ".d"
+                data_data = None
+                if os.path.isfile(data_path):
+                    with open(data_path, "rb") as f:
+                        data_data = f.read()
+                try:
+                    contents = self.recover_latest_revlog_file(
+                        self.read_file(index_path), data_data=data_data
+                    )
+                except Exception as e:
+                    self.error_log("Failed to recover Mercurial revlog %s" % store_path, e=e)
+                    continue
+                if contents is None:
+                    continue
+                self.save_recovered_file(source_name, contents)
+
+    def read_file(self, filename: str) -> bytes:
+        with open(filename, "rb") as f:
+            return f.read()
+
+    def save_recovered_file(self, filename: str, data: bytes):
+        fullname = os.path.abspath(os.path.join(self.outdir, filename))
+        outdir = os.path.abspath(self.outdir)
+        if os.path.commonpath([outdir, fullname]) != outdir:
+            click.secho("Skip unsafe recovered Mercurial path: %s" % filename, fg="red")
+            return
+
+        target = fullname
+        if os.path.exists(target):
+            try:
+                with open(target, "rb") as f:
+                    if f.read() == data:
+                        return
+            except Exception:
+                pass
+            target = os.path.abspath(os.path.join(self.outdir, ".hg", "recovered", filename))
+            if os.path.exists(target):
+                return
+
+        self.makedirs(target)
+        with open(target, "wb") as f:
+            f.write(data)
+        shown = os.path.relpath(target, self.outdir).replace(os.sep, "/")
+        click.secho("[HG] recovered %s" % shown, fg="green")
+
+    def recover_latest_revlog_file(self, index_data: bytes, data_data: bytes = None):
+        revisions = self.parse_revlog(index_data, data_data=data_data)
+        if not revisions:
+            return None
+        return revisions[-1]
+
+    def parse_revlog(self, index_data: bytes, data_data: bytes = None) -> list:
+        entries = self.parse_revlog_entries(index_data, data_data=data_data)
+        fulltexts = []
+        for rev, entry in enumerate(entries):
+            chunk = self.decompress_revlog_chunk(entry["chunk"])
+            if entry["base_rev"] == rev or entry["base_rev"] < 0:
+                fulltext = chunk
+            elif entry["base_rev"] < len(fulltexts):
+                try:
+                    fulltext = self.apply_revlog_delta(fulltexts[entry["base_rev"]], chunk)
+                except Exception:
+                    fulltext = chunk
+            else:
+                fulltext = chunk
+            fulltexts.append(fulltext)
+        return fulltexts
+
+    def parse_revlog_entries(self, index_data: bytes, data_data: bytes = None) -> list:
+        if data_data is None:
+            inline_entries = self.parse_inline_revlog_entries(index_data)
+            if inline_entries is not None:
+                return inline_entries
+        return self.parse_split_revlog_entries(index_data, data_data or b"")
+
+    def parse_inline_revlog_entries(self, data: bytes):
+        pos = 0
+        entries = []
+        while pos < len(data):
+            if pos + self.REVLOG_ENTRY_SIZE > len(data):
+                return None
+            entry = self.unpack_revlog_entry(data[pos : pos + self.REVLOG_ENTRY_SIZE])
+            compressed_len = entry["compressed_len"]
+            if compressed_len < 0:
+                return None
+            chunk_start = pos + self.REVLOG_ENTRY_SIZE
+            chunk_end = chunk_start + compressed_len
+            if chunk_end > len(data):
+                return None
+            entry["chunk"] = data[chunk_start:chunk_end]
+            entries.append(entry)
+            pos = chunk_end
+        return entries
+
+    def parse_split_revlog_entries(self, index_data: bytes, data_data: bytes) -> list:
+        entries = []
+        entry_count = len(index_data) // self.REVLOG_ENTRY_SIZE
+        for rev in range(entry_count):
+            start = rev * self.REVLOG_ENTRY_SIZE
+            entry = self.unpack_revlog_entry(index_data[start : start + self.REVLOG_ENTRY_SIZE])
+            compressed_len = max(entry["compressed_len"], 0)
+            chunk_start = entry["offset"]
+            chunk_end = chunk_start + compressed_len
+            entry["chunk"] = data_data[chunk_start:chunk_end]
+            entries.append(entry)
+        return entries
+
+    def unpack_revlog_entry(self, data: bytes) -> dict:
+        (
+            offset_flags,
+            compressed_len,
+            _uncompressed_len,
+            base_rev,
+            _link_rev,
+            _p1_rev,
+            _p2_rev,
+            _node,
+        ) = self.REVLOG_ENTRY.unpack(data)
+        return {
+            "offset": offset_flags & 0x0000FFFFFFFFFFFF,
+            "flags": offset_flags >> 48,
+            "compressed_len": compressed_len,
+            "base_rev": base_rev,
+            "chunk": b"",
+        }
+
+    def decompress_revlog_chunk(self, chunk: bytes) -> bytes:
+        if not chunk:
+            return b""
+        if chunk.startswith(b"u"):
+            return chunk[1:]
+        if chunk.startswith(b"\0"):
+            return chunk
+        return zlib.decompress(chunk)
+
+    def apply_revlog_delta(self, base: bytes, delta: bytes) -> bytes:
+        output = []
+        pos = 0
+        delta_pos = 0
+        while delta_pos + 12 <= len(delta):
+            start, end, data_len = struct.unpack(">lll", delta[delta_pos : delta_pos + 12])
+            delta_pos += 12
+            if start < pos or end < start or data_len < 0:
+                raise ValueError("invalid Mercurial delta")
+            output.append(base[pos:start])
+            output.append(delta[delta_pos : delta_pos + data_len])
+            delta_pos += data_len
+            pos = end
+        if delta_pos != len(delta):
+            raise ValueError("trailing Mercurial delta bytes")
+        output.append(base[pos:])
+        return b"".join(output)
