@@ -111,10 +111,12 @@ class BaseDumper(object):
         status, data = await self.fetch(url)
         if status != 200 or data is None:
             # None才代表出错，data可能为b""
-            click.secho("[%s] %s %s" % (status, url, filename), fg="red")
+            if self.debug:
+                click.secho("[%s] %s %s" % (status, url, filename), fg="red")
             return
 
-        click.secho("[%s] %s %s" % (status, url, filename), fg="green")
+        if self.debug:
+            click.secho("[%s] %s %s" % (status, url, filename), fg="green")
 
         # 处理数据（如有必要）
         data = self.convert(data)

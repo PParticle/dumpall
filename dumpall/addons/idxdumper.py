@@ -7,6 +7,7 @@
 
 import asyncio
 import aiohttp
+import click
 from urllib.parse import urlparse, urljoin
 from asyncio.queues import Queue
 from pyquery import PyQuery as pq
@@ -39,6 +40,7 @@ class Dumper(BaseDumper):
             await t
 
         self.running = False
+        click.secho("Web index: visited %d URL(s)." % len(self.fetched_urls), fg="cyan")
 
     async def dump(self):
         """ 核心下载方法 """

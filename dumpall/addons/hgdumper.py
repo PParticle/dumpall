@@ -49,6 +49,9 @@ class Dumper(BaseDumper):
         if status != 200 or not requires:
             click.secho("Failed [%s] %s" % (status, requires_url), fg="red")
             return
+        if not self.is_valid_requires(requires):
+            click.secho("Mercurial: invalid requires, skip .hg.", fg="yellow")
+            return
 
         for name in self.METADATA_FILES:
             self.add_target(self.base_url + "/" + quote(name, safe="/"), ".hg/" + name)
@@ -67,6 +70,7 @@ class Dumper(BaseDumper):
             click.secho("No Mercurial files found.", fg="yellow")
             return
 
+        click.secho("Mercurial: downloading %d artifact(s)." % len(self.targets), fg="cyan")
         async with Pool() as pool:
             await pool.map(self.download, self.targets)
 
@@ -149,9 +153,36 @@ class Dumper(BaseDumper):
         paths = []
         for line in data.decode("utf-8", errors="ignore").splitlines():
             path = line.strip().lstrip("/")
-            if path and not path.startswith("../"):
+            if self.is_valid_store_path(path):
                 paths.append(path)
         return paths
+
+    def is_valid_requires(self, data: bytes) -> bool:
+        text = data.decode("utf-8", errors="ignore").strip()
+        if not text or "<html" in text.lower() or "<!doctype" in text.lower():
+            return False
+        allowed = {
+            "revlogv1",
+            "store",
+            "fncache",
+            "dotencode",
+            "generaldelta",
+            "sparserevlog",
+            "persistent-nodemap",
+            "dirstate-v2",
+            "share-safe",
+        }
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        return bool(lines) and all(line in allowed for line in lines)
+
+    def is_valid_store_path(self, path: str) -> bool:
+        if not path or path.startswith("../") or path.startswith("/"):
+            return False
+        if not path.startswith("data/"):
+            return False
+        if not path.endswith((".i", ".d")):
+            return False
+        return not bool(re.search(r'[<>:"|?*\\\s]', path))
 
     def store_data_paths(self, filename: str) -> list:
         """Return likely Mercurial revlog paths for a working-tree file."""
@@ -227,7 +258,9 @@ class Dumper(BaseDumper):
                 if not name.endswith(".i"):
                     continue
                 index_path = os.path.join(root, name)
-                store_path = os.path.relpath(index_path, os.path.join(self.outdir, ".hg", "store"))
+                store_path = os.path.relpath(
+                    index_path, os.path.join(self.outdir, ".hg", "store")
+                )
                 store_path = store_path.replace(os.sep, "/")
                 source_name = self.source_name_from_store_path(store_path)
                 if not source_name:
@@ -242,7 +275,9 @@ class Dumper(BaseDumper):
                         self.read_file(index_path), data_data=data_data
                     )
                 except Exception as e:
-                    self.error_log("Failed to recover Mercurial revlog %s" % store_path, e=e)
+                    self.error_log(
+                        "Failed to recover Mercurial revlog %s" % store_path, e=e
+                    )
                     continue
                 if contents is None:
                     continue
@@ -267,7 +302,9 @@ class Dumper(BaseDumper):
                         return
             except Exception:
                 pass
-            target = os.path.abspath(os.path.join(self.outdir, ".hg", "recovered", filename))
+            target = os.path.abspath(
+                os.path.join(self.outdir, ".hg", "recovered", filename)
+            )
             if os.path.exists(target):
                 return
 
@@ -292,7 +329,9 @@ class Dumper(BaseDumper):
                 fulltext = chunk
             elif entry["base_rev"] < len(fulltexts):
                 try:
-                    fulltext = self.apply_revlog_delta(fulltexts[entry["base_rev"]], chunk)
+                    fulltext = self.apply_revlog_delta(
+                        fulltexts[entry["base_rev"]], chunk
+                    )
                 except Exception:
                     fulltext = chunk
             else:
@@ -331,7 +370,9 @@ class Dumper(BaseDumper):
         entry_count = len(index_data) // self.REVLOG_ENTRY_SIZE
         for rev in range(entry_count):
             start = rev * self.REVLOG_ENTRY_SIZE
-            entry = self.unpack_revlog_entry(index_data[start : start + self.REVLOG_ENTRY_SIZE])
+            entry = self.unpack_revlog_entry(
+                index_data[start : start + self.REVLOG_ENTRY_SIZE]
+            )
             compressed_len = max(entry["compressed_len"], 0)
             chunk_start = entry["offset"]
             chunk_end = chunk_start + compressed_len

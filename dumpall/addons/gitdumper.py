@@ -68,28 +68,50 @@ class Dumper(BaseDumper):
     async def dump(self):
         """Dump Git metadata, reachable objects, and index worktree files."""
         index_data = await self.collect_metadata_and_refs()
+        if not self.seen_git_files:
+            return
         if index_data:
             await self.collect_index_blobs(index_data)
 
         await self.collect_reachable_objects()
 
         if self.worktree_targets:
+            click.secho(
+                "Git: downloading %d worktree file(s)."
+                % len(self.worktree_targets),
+                fg="cyan",
+            )
             async with Pool() as pool:
                 await pool.map(self.download, self.worktree_targets)
+        click.secho(
+            "Git: saved %d metadata/object file(s), %d worktree file(s)."
+            % (len(self.seen_git_files), len(self.worktree_targets)),
+            fg="cyan",
+        )
 
     async def collect_metadata_and_refs(self) -> bytes:
         """Download known Git metadata and seed object traversal from refs/logs."""
         index_data = b""
-        head_ref = ""
+
+        status, head_data = await self.fetch_git_file(
+            "HEAD", required=True, validator=self.is_valid_head
+        )
+        if status != 200 or not head_data:
+            click.secho("Git: invalid or missing HEAD, skip .git.", fg="yellow")
+            return index_data
+
+        head_ref = self.parse_head_ref(head_data)
 
         for name in self.METADATA_FILES:
-            status, data = await self.fetch_git_file(name, required=name == "HEAD")
+            if name == "HEAD":
+                continue
+            status, data = await self.fetch_git_file(
+                name, validator=self.git_file_validator(name)
+            )
             if status != 200 or data is None:
                 continue
             self.seed_hashes(data)
-            if name == "HEAD":
-                head_ref = self.parse_head_ref(data)
-            elif name == "index":
+            if name == "index":
                 index_data = data
             elif name == "objects/info/packs":
                 await self.collect_pack_files(data)
@@ -99,7 +121,9 @@ class Dumper(BaseDumper):
             ref_paths.extend([head_ref, "logs/" + head_ref])
 
         for name in dict.fromkeys(ref_paths):
-            status, data = await self.fetch_git_file(name)
+            status, data = await self.fetch_git_file(
+                name, validator=self.is_valid_ref_or_log
+            )
             if status == 200 and data:
                 self.seed_hashes(data)
 
@@ -160,10 +184,16 @@ class Dumper(BaseDumper):
             elif obj_type == b"tree":
                 self.parse_tree(body)
 
-    async def fetch_git_file(self, name: str, required: bool = False) -> tuple:
+    async def fetch_git_file(
+        self, name: str, required: bool = False, validator=None
+    ) -> tuple:
         url = self.base_url + "/" + quote(name, safe="/")
         status, data = await self.fetch(url)
         if status == 200 and data is not None:
+            if validator and not validator(data):
+                if self.debug:
+                    click.secho("Invalid Git file %s" % name, fg="yellow")
+                return status, None
             await self.save_raw(url, ".git/" + name, data, status=status)
         elif required:
             click.secho("Failed [%s] %s" % (status, url), fg="red")
@@ -176,7 +206,8 @@ class Dumper(BaseDumper):
         if status == 200 and data is not None:
             await self.save_raw(url, filename, data, status=status)
         else:
-            click.secho("Failed [%s] %s" % (status, url), fg="red")
+            if self.debug:
+                click.secho("Failed [%s] %s" % (status, url), fg="red")
         return status, data
 
     async def save_raw(self, url: str, filename: str, data: bytes, status: int = 200):
@@ -190,7 +221,8 @@ class Dumper(BaseDumper):
             with open(fullname, "wb") as f:
                 f.write(data)
             self.seen_git_files.add(filename)
-            click.secho("[%s] %s %s" % (status, url, filename), fg="green")
+            if self.debug:
+                click.secho("[%s] %s %s" % (status, url, filename), fg="green")
         except IsADirectoryError:
             pass
         except Exception as e:
@@ -232,6 +264,44 @@ class Dumper(BaseDumper):
             if match:
                 packs.append(match.group(1))
         return packs
+
+    def git_file_validator(self, name: str):
+        if name == "index":
+            return self.is_valid_index
+        if name == "objects/info/packs":
+            return self.is_valid_info_packs
+        if name == "packed-refs":
+            return self.is_valid_packed_refs
+        return None
+
+    def is_valid_head(self, data: bytes) -> bool:
+        text = data.decode("utf-8", errors="ignore").strip()
+        return bool(
+            text.startswith("ref: refs/")
+            or re.fullmatch(r"[0-9a-f]{40}", text)
+        )
+
+    def is_valid_index(self, data: bytes) -> bool:
+        return data.startswith(b"DIRC")
+
+    def is_valid_info_packs(self, data: bytes) -> bool:
+        text = data.decode("utf-8", errors="ignore").strip()
+        return not text or bool(self.parse_info_packs(data))
+
+    def is_valid_packed_refs(self, data: bytes) -> bool:
+        text = data.decode("utf-8", errors="ignore")
+        return bool(
+            text.startswith("# pack-refs")
+            or re.search(r"(?m)^[0-9a-f]{40} refs/", text)
+        )
+
+    def is_valid_ref_or_log(self, data: bytes) -> bool:
+        text = data.decode("utf-8", errors="ignore").strip()
+        if text.startswith("ref: refs/"):
+            return True
+        if re.fullmatch(r"[0-9a-f]{40}", text):
+            return True
+        return bool(re.search(r"(?m)^[0-9a-f]{40} [0-9a-f]{40} ", text))
 
     def parse_commit(self, body: bytes):
         for line in body.splitlines():

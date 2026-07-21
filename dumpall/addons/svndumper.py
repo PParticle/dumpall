@@ -30,10 +30,13 @@ class Dumper(BaseDumper):
         if status != 200 or not data:
             click.secho("Failed [%s] %s" % (status, entries_url), fg="red")
             return
+        if not self.is_valid_entries(data):
+            click.secho("SVN: invalid entries, skip .svn.", fg="yellow")
+            return
         if data == b"12\n":
             await self.dump()
         else:
-            click.secho("DUMP LEGACY", fg="yellow")
+            click.secho("SVN: legacy entries detected.", fg="cyan")
             await self.dump_legacy(data)
 
     async def dump(self):
@@ -138,6 +141,12 @@ class Dumper(BaseDumper):
             click.secho("Sqlite connection failed.", fg="red")
             click.secho(str(e.args), fg="red")
             return []
+
+    def is_valid_entries(self, data: bytes) -> bool:
+        text = data.decode("utf-8", errors="ignore").lstrip().lower()
+        if text.startswith("<!doctype") or text.startswith("<html"):
+            return False
+        return True
 
     def parse_pristine_checksums(self, filename: str) -> list:
         """ sqlite解析PRISTINE表并返回全部对象hash """

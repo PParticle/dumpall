@@ -63,5 +63,6 @@ class Dumper(BaseDumper):
                     self.targets.append((new_url, fullname))
             except Exception as e:
                 # 如果解析失败则不是DS_Store文件
-                msg = "Failed to parse ds_store file"
-                self.error_log(msg=msg, e=e)
+                if self.debug:
+                    msg = "Failed to parse ds_store file"
+                    self.error_log(msg=msg, e=e)

@@ -12,6 +12,7 @@ from dumpall.addons import autodumper
 from dumpall.addons.gitdumper import Dumper as GitDumper
 from dumpall.addons.hgdumper import Dumper as HgDumper
 from dumpall.addons.idxdumper import Dumper as IdxDumper
+from dumpall.addons.svndumper import Dumper as SvnDumper
 from dumpall.dumper import BaseDumper
 
 
@@ -178,6 +179,14 @@ class IndexDumperTests(TestCase):
         self.assertFalse(dumper.should_skip_url("https://example.test/.github/"))
 
 
+class SvnDumperTests(TestCase):
+    def test_html_entries_are_rejected(self):
+        dumper = SvnDumper("https://example.test/.svn/", "/tmp/output")
+
+        self.assertFalse(dumper.is_valid_entries(b"<!DOCTYPE html><html></html>"))
+        self.assertTrue(dumper.is_valid_entries(b"12\n"))
+
+
 class GitDumperTests(IsolatedAsyncioTestCase):
     def git_object(self, obj_type: bytes, body: bytes) -> bytes:
         return zlib.compress(obj_type + b" " + str(len(body)).encode() + b"\0" + body)
@@ -236,6 +245,17 @@ class GitDumperTests(IsolatedAsyncioTestCase):
                 (Path(temp_dir) / ".git/objects/33" / ("3" * 38)).is_file()
             )
 
+    async def test_invalid_html_head_skips_git_probe(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dumper = GitDumper("https://example.test/.git/", temp_dir)
+            dumper.fetch = AsyncMock(return_value=(200, b"<!DOCTYPE html><html></html>"))
+
+            result = await dumper.collect_metadata_and_refs()
+
+            self.assertEqual(result, b"")
+            self.assertFalse((Path(temp_dir) / ".git/HEAD").exists())
+            dumper.fetch.assert_awaited_once()
+
 
 class HgDumperTests(IsolatedAsyncioTestCase):
     def dirstate_entry(self, state: bytes, filename: bytes) -> bytes:
@@ -277,6 +297,25 @@ class HgDumperTests(IsolatedAsyncioTestCase):
                 "data/src/_app___file.py.i",
                 "data/src/_app___file.py.d",
             ],
+        )
+
+    def test_invalid_html_requires_is_rejected(self):
+        dumper = HgDumper("https://example.test/app/.hg/", "/tmp/output")
+
+        self.assertFalse(dumper.is_valid_requires(b"<!DOCTYPE html><html></html>"))
+        self.assertTrue(dumper.is_valid_requires(b"revlogv1\nstore\nfncache\n"))
+
+    def test_fncache_ignores_html_and_invalid_paths(self):
+        dumper = HgDumper("https://example.test/app/.hg/", "/tmp/output")
+
+        self.assertEqual(
+            dumper.parse_fncache(
+                b"<!DOCTYPE html>\n"
+                b"data/flag.php.i\n"
+                b"<title>bad</title>\n"
+                b"data/has space.php.i\n"
+            ),
+            ["data/flag.php.i"],
         )
 
     async def test_collects_targets_from_dirstate_and_fncache(self):
