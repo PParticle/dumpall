@@ -16,6 +16,8 @@ from ..dumper import BaseDumper
 class Dumper(BaseDumper):
     """ index dumper """
 
+    SKIP_PREFIXES = (".git/", ".hg/", ".svn/")
+
     def __init__(self, url: str, outdir: str, **kwargs):
         super(Dumper, self).__init__(url, outdir, **kwargs)
         self.netloc = urlparse(url).netloc
@@ -78,7 +80,9 @@ class Dumper(BaseDumper):
                                     if not href_parsed.scheme.startswith("http"):
                                         continue
                                 new_url = urljoin(url, href_parsed.path)
-                                fullname = urlparse(new_url).path.lstrip("/")
+                                if self.should_skip_url(new_url):
+                                    continue
+                                fullname = self.target_name_from_url(new_url)
                                 await self.targets_q.put((new_url, fullname))
                                 # self.targets_q.put_nowait((new_url, fullname))
                     except Exception as e:
@@ -102,3 +106,20 @@ class Dumper(BaseDumper):
                 self.error_log(msg=msg, e=e)
             finally:
                 await session.close()
+
+    def target_name_from_url(self, url: str) -> str:
+        """Return a safe output name; directory listings are saved as index."""
+        path = urlparse(url).path.lstrip("/")
+        if not path:
+            return "index"
+        if path.endswith("/"):
+            return path + "index"
+        return path
+
+    def should_skip_url(self, url: str) -> bool:
+        """Dedicated VCS dumpers handle these paths; crawling them can corrupt repos."""
+        path = urlparse(url).path.lstrip("/")
+        return any(
+            path == prefix.rstrip("/") or path.startswith(prefix)
+            for prefix in self.SKIP_PREFIXES
+        )

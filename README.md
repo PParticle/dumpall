@@ -80,6 +80,9 @@ uv run dumpall -u http://example.com/
 任一类型不存在或解析失败都不会阻止后续检查。
 为兼容旧用法，传入 `/.git/`、`/.hg/`、`/.svn/` 或 `/.DS_Store` URL 时也会先回到所在目录，再执行全部检查。
 
+Git 泄露会同时保存 `.git/HEAD`、`refs`、`logs`、`index` 及可达 commit/tree/blob 对象，
+因此输出目录可直接用 `git log --all`、`git show <commit>:<file>` 查看仓库历史。
+
 帮助
 
 ```bash

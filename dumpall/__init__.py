@@ -82,11 +82,11 @@ def main(
     click.secho("Target: %s" % url, fg="yellow")
     click.secho("Output Directory: %s\n" % outdir, fg="yellow")
 
-    # fix Error: Too many open files
-    try:
-        os.system("ulimit -n 65535")
-    except Exception as e:
-        click.secho("请手动修改打开文件数量限制")
-        pass
+    # fix Error: Too many open files. Windows shells do not provide ulimit.
+    if os.name != "nt":
+        try:
+            os.system("ulimit -n 65535")
+        except Exception:
+            click.secho("请手动修改打开文件数量限制")
 
     start(url, outdir, proxy=proxy, force=force, debug=debug)
